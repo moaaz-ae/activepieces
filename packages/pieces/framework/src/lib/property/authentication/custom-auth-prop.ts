@@ -13,9 +13,12 @@ import { MarkDownProperty } from '../input/markdown-property';
 const CustomAuthProps = z.record(z.string(), z.union([
   ShortTextProperty,
   LongTextProperty,
+  SecretTextProperty,
   NumberProperty,
   CheckboxProperty,
   StaticDropdownProperty,
+  MarkDownProperty,
+  StaticMultiSelectDropdownProperty,
 ]));
 
 export type CustomAuthProps = Record<
