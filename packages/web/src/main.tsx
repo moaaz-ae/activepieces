@@ -40,8 +40,32 @@ window.addEventListener('unhandledrejection', (event) => {
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement,
 );
-root.render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+
+function render() {
+  root.render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+}
+
+/*
+ * The fixture harness has to be installed before the first request leaves, so
+ * the render waits on it.
+ *
+ * Imported here rather than at the top of the file, behind a condition made of
+ * two values Vite replaces at build time. That is what actually keeps the
+ * fixture world out of a production bundle: a static import plus a runtime
+ * check left the dynamic imports inside `installHarness` reachable, and an
+ * ordinary `vite build` emitted the fixture chunks — measured, four of them.
+ * With the condition statically false the import is unreachable and nothing is
+ * emitted.
+ */
+if (import.meta.env.DEV || import.meta.env.VITE_HARNESS === '1') {
+  import('./harness/install')
+    .then(({ installHarness }) => installHarness())
+    .then(render)
+    .catch(render);
+} else {
+  render();
+}
