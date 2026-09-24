@@ -50,7 +50,7 @@ const LOCKED = ['community', 'free'];
 const UPGRADE = {
   name: 'upgrade',
   scenarios: ['free'],
-  steps: ['role=button[name="Upgrade plan"]'],
+  steps: ['role=button[name=/^Upgrade/]'],
 };
 
 /* Signed-out screens do not vary by volume or health, only by edition. */
@@ -65,20 +65,156 @@ const AUTH = {
    else, in every scenario. */
 const ADMIN = { group: 'admin' };
 
+/*
+ * The builder, and the one flow it opens.
+ *
+ * `{flowId}` is resolved from the session the harness wrote, the same way
+ * `{pieceSetId}` is, so the script never re-derives a seeded id.
+ */
+const BUILDER_PATH = 'project:/flows/{flowId}';
+const BUILDER = [
+  ['builder', BUILDER_PATH, { scenarios: ['typical'] }],
+  [
+    'builder-trigger',
+    BUILDER_PATH,
+    { scenarios: ['typical'], click: 'text="New Stripe event"' },
+  ],
+  [
+    'builder-step',
+    BUILDER_PATH,
+    { scenarios: ['typical'], click: 'text="Look up the customer"' },
+  ],
+  /* The code step opens Monaco, which brings its own theme rather than the
+     app's tokens — the one surface in the builder that can be left behind by
+     a palette change without anything else looking wrong. */
+  [
+    'builder-code',
+    BUILDER_PATH,
+    { scenarios: ['typical'], click: 'text="Normalise the payload"' },
+  ],
+  [
+    'builder-router',
+    BUILDER_PATH,
+    { scenarios: ['typical'], click: 'text="Split by plan"' },
+  ],
+];
+
+/*
+ * Project settings: a dialog, not a page.
+ *
+ * Opened from the team-members button in the project header (the gear beside
+ * it carries no accessible name, so there is nothing to address it by). That
+ * button lands on the Members tab; the rest are one more click down the left
+ * nav, whose items are plain rows rather than tabs, hence the text locators.
+ */
+const OPEN_PROJECT_SETTINGS = 'role=button[name=/team member/i]';
+const PROJECT_SETTINGS_STATES = [
+  { name: 'settings-members', scenarios: ['typical'], steps: [OPEN_PROJECT_SETTINGS] },
+  {
+    name: 'settings-general',
+    scenarios: ['typical'],
+    steps: [OPEN_PROJECT_SETTINGS, 'nav >> text="General"'],
+  },
+  {
+    name: 'settings-alerts',
+    scenarios: ['typical'],
+    steps: [OPEN_PROJECT_SETTINGS, 'nav >> text="Alert Emails"'],
+  },
+  {
+    name: 'settings-pieces',
+    scenarios: ['typical'],
+    steps: [OPEN_PROJECT_SETTINGS, 'nav >> text="Pieces"'],
+  },
+  /* Cmd-K. The handler takes either modifier, so this works off a Mac too. */
+  { name: 'search', scenarios: ['typical'], steps: [{ press: 'Meta+k' }] },
+];
+
 const ROUTES = [
   /* ---------------------------------------------------------- the product */
   ['chat', '/chat'],
   ['agents', '/agents'],
   ['impact', '/impact'],
   ['mcp', '/mcp-server'],
-  ['automations', 'project:/automations'],
-  ['flows', 'project:/flows'],
+  /* The MCP tabs are path segments here, unlike the platform-side MCP page. */
+  ['mcp-pieces', '/mcp-server/pieces'],
+  ['mcp-connections', '/mcp-server/connections'],
+  [
+    'mcp-activity',
+    '/mcp-server/activity',
+    {
+      /* The only Sheet in the whole matrix: a right-hand drawer, which is a
+         ground no dialog shot covers. */
+      states: [
+        { name: 'detail', scenarios: ['typical'], steps: ['table tbody tr'] },
+      ],
+    },
+  ],
+  ['templates', '/templates'],
+  /* `/v1/templates/:id` falls back to the first row, so any id resolves. */
+  ['template', '/templates/harness-template'],
+  ['not-found', '/404', { paint: { minBoxes: 3, minChars: 20 } }],
+  /*
+   * `project:/flows` and `project:/tables` used to be here. Both render
+   * `<Navigate to="/automations">`, so both were duplicates of the
+   * `automations` shot — 32 screenshots of a redirect.
+   */
+  ['automations', 'project:/automations', { states: PROJECT_SETTINGS_STATES }],
   ['runs', 'project:/runs'],
-  ['connections', 'project:/connections'],
-  ['tables', 'project:/tables'],
+  [
+    'connections',
+    'project:/connections',
+    {
+      states: [
+        /* The picker: every connectable piece as a grid of logos. */
+        { name: 'new', scenarios: ['typical'], steps: ['role=button[name=/new connection/i]'] },
+        /*
+         * The dynamic form behind it. PostgreSQL declares BASIC_AUTH in the
+         * fixture registry, so the property renderer draws real fields rather
+         * than the single OAuth button every other piece would give.
+         */
+        {
+          name: 'create',
+          scenarios: ['typical'],
+          steps: ['role=button[name=/new connection/i]', 'text="PostgreSQL"'],
+        },
+        /* The same dialog for an OAuth2 piece — a different shape entirely. */
+        {
+          name: 'create-oauth',
+          scenarios: ['typical'],
+          steps: ['role=button[name=/new connection/i]', 'text="Slack"'],
+        },
+      ],
+    },
+  ],
   ['approvals', 'project:/approvals'],
+  /*
+   * ------------------------------------------------------------ the builder
+   *
+   * One flow, opened five ways. The canvas is the app's densest screen and
+   * none of the list routes say anything about it: step cards on a dotted
+   * ground, the connectors between them, a router's two branch labels, and —
+   * behind a click — the settings panel, which is the only place in the
+   * product a form sits on a panel over a canvas.
+   *
+   * The clicks address steps by the name a person reads on the card, which is
+   * why flow 0's graph is hand-written in the fixtures rather than seeded:
+   * these five literals are its labels.
+   *
+   * Scenarios are deliberately few. The canvas does not change with volume or
+   * health — it is one flow either way — so shooting it in six worlds is six
+   * copies of the same picture. `empty` is excluded for the opposite reason:
+   * that world has flows too (the volume floor is 1), but nothing about the
+   * builder is an empty state.
+   */
+  ...BUILDER,
   ['releases', 'project:/releases'],
-  ['settings', 'project:/settings'],
+  /*
+   * `project:/settings` used to be here. It renders `SettingsRerouter`, which
+   * navigates to `/settings/team` — a route nothing registers — so the shot
+   * fell through the catch-all onto the default page and reviewed nothing.
+   * Project settings is a dialog; it is photographed as
+   * `automations__*__settings-*` above.
+   */
 
   /* ------------------------------------------------------------ the admin */
   /*
@@ -249,7 +385,7 @@ const ROUTES = [
   ['platform-triggers', '/platform/infrastructure/triggers', ADMIN],
   [
     'platform-billing',
-    '/platform/setup/billing',
+    '/platform/billing',
     {
       ...ADMIN,
       states: [
@@ -258,10 +394,27 @@ const ROUTES = [
           scenarios: ['typical', 'free', 'cloud'],
           steps: ['role=button[name=/explore plans|upgrade plan/i]'],
         },
+        { name: 'credits', scenarios: ['cloud'], steps: ['text="Usage breakdown"'] },
+        {
+          name: 'seats',
+          scenarios: ['cloud'],
+          steps: ['role=button[name=/manage seats|add seats/i]'],
+        },
+        {
+          name: 'auto-recharge',
+          scenarios: ['cloud'],
+          steps: ['role=button[name=/^edit$/i]'],
+        },
       ],
     },
   ],
-  ['platform-usage', '/platform/setup/usage', ADMIN],
+  /*
+   * The three money dialogs live on the billing page, not the usage page —
+   * the usage tab is only `FeatureUsageCards` plus a project table, and the
+   * cards that own these buttons (credits, seats, auto-recharge) are rendered
+   * by `/platform/billing`.
+   */
+  ['platform-usage', '/platform/usage', ADMIN],
   ['platform-general', '/platform/setup/general', ADMIN],
 
   /* ------------------------------------------------------------ signed out */
@@ -306,7 +459,8 @@ export default {
       .waitForFunction(() => localStorage.getItem('projectId'), null, { timeout: 20_000 })
       .then((handle) => handle.jsonValue());
     const pieceSetId = await page.evaluate(() => localStorage.getItem('ap-harness-piece-set-id'));
-    return { projectId, pieceSetId };
+    const flowId = await page.evaluate(() => localStorage.getItem('ap-harness-flow-id'));
+    return { projectId, pieceSetId, flowId };
   },
 
   /*
@@ -340,7 +494,9 @@ export default {
       route.path.startsWith('project:')
         ? `/projects/${ctx.projectId}${route.path.slice('project:'.length)}`
         : route.path
-    ).replace('{pieceSetId}', ctx.pieceSetId ?? '');
+    )
+      .replace('{pieceSetId}', ctx.pieceSetId ?? '')
+      .replace('{flowId}', ctx.flowId ?? '');
     const params = new URLSearchParams({
       signedOut: route.signedOut ? '1' : '0',
       strict: filters.strict ? '1' : '0',

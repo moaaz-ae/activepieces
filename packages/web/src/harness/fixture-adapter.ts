@@ -14,7 +14,10 @@
  * abandoned in an afternoon.
  */
 
-import { PlatformAnalyticsReport } from '@activepieces/shared';
+import {
+  FlowVersionState,
+  PlatformAnalyticsReport,
+} from '@activepieces/shared';
 import { AxiosAdapter, AxiosHeaders, InternalAxiosRequestConfig } from 'axios';
 
 import { projectRoleFor } from './fixtures/access';
@@ -25,7 +28,7 @@ import {
 import { adminSecurityRoutes } from './fixtures/admin-security';
 import { analyticsFor } from './fixtures/analytics';
 import { flagsFor } from './fixtures/flags';
-import { piecesFor } from './fixtures/pieces';
+import { pieceFor, piecesFor } from './fixtures/pieces';
 import { NOW } from './fixtures/rng';
 import { PLATFORM_ID, PROJECT_ID, worldFor } from './fixtures/world';
 import { page, Query, Route } from './routes';
@@ -230,11 +233,27 @@ const ROUTES: Route[] = [
       return page(flows, query);
     },
   ],
+  /*
+   * The builder's own read of a flow.
+   *
+   * It answers with the draft version rather than the locked one the lists
+   * carry, which is what the real endpoint does too: the builder opens the
+   * version you are editing. The distinction is load-bearing here — the
+   * builder treats a LOCKED version as read-only and hides the step settings
+   * panel, the add-step buttons and the test widget, so a locked fixture
+   * photographs an inert canvas and none of the surfaces worth reviewing.
+   */
   [
     'GET',
     '/v1/flows/:id',
-    ({ world, params }) =>
-      world.flows.find((flow) => flow.id === params.id) ?? world.flows[0],
+    ({ world, params }) => {
+      const flow =
+        world.flows.find((entry) => entry.id === params.id) ?? world.flows[0];
+      return {
+        ...flow,
+        version: { ...flow.version, state: FlowVersionState.DRAFT },
+      };
+    },
   ],
 
   [
@@ -298,6 +317,21 @@ const ROUTES: Route[] = [
 
   ['GET', '/v1/pieces', ({ query }) => piecesFor(query)],
   ['GET', '/v1/pieces/registry', ({ query }) => piecesFor(query)],
+  /*
+   * Two segments, not one: a piece is named `@activepieces/piece-slack`, so
+   * the slash inside the name lands in the path and a `:name` pattern never
+   * matches it.
+   */
+  [
+    'GET',
+    '/v1/pieces/:scope/:name',
+    ({ params }) => pieceFor(`${params.scope}/${params.name}`) ?? {},
+  ],
+
+  /* The builder asks for each step's last test result before it renders. No
+     fixture flow has been tested, so the honest answer is nothing. */
+  ['GET', '/v1/sample-data', () => ({})],
+  ['GET', '/v1/step-run', () => ({})],
 
   ['GET', '/v1/tables/count', ({ world }) => world.tables.length],
   ['GET', '/v1/tables', ({ world, query }) => page(world.tables, query)],

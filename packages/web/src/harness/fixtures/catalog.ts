@@ -178,3 +178,32 @@ export const FAILURE_MESSAGES: string[] = [
   'The step returned undefined where an object was expected.',
   'Stripe: No such customer: cus_QXm2r8kLp0.',
 ];
+
+/*
+ * What a step in a flow is called.
+ *
+ * The builder canvas is a column of step cards, so the names carry most of the
+ * picture: a card reading "Send a message" next to a Slack logo is the shape a
+ * real flow has, and "Step 2" times four is not. Lengths are uneven on purpose
+ * — a canvas node truncates at about 26 characters and that edge should be in
+ * the screenshot rather than discovered later.
+ */
+export type ActionRef = { name: string; displayName: string };
+
+export const PIECE_ACTIONS: ActionRef[] = [
+  { name: 'send_message', displayName: 'Send a message' },
+  { name: 'create_record', displayName: 'Create record' },
+  { name: 'update_record', displayName: 'Update the customer record' },
+  { name: 'find_record', displayName: 'Find matching record' },
+  { name: 'send_email', displayName: 'Send email' },
+  { name: 'create_issue', displayName: 'Create issue' },
+  { name: 'add_row', displayName: 'Append a row' },
+  { name: 'get_customer', displayName: 'Look up the customer' },
+];
+
+/* Code steps read as the glue between two pieces, which is what they are. */
+export const CODE_STEPS: ActionRef[] = [
+  { name: 'code', displayName: 'Normalise the payload' },
+  { name: 'code', displayName: 'Build the digest' },
+  { name: 'code', displayName: 'Compute the totals' },
+];

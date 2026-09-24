@@ -9,12 +9,13 @@
  */
 
 import {
+  PieceMetadataModel,
   PieceMetadataModelSummary,
   PropertyType,
 } from '@activepieces/pieces-framework';
 import { PackageType, PieceCategory, PieceType } from '@activepieces/shared';
 
-import { PIECES } from './catalog';
+import { PIECE_ACTIONS, PIECE_BY_NAME, PIECES } from './catalog';
 import { rngFor } from './rng';
 
 const CATEGORY_BY_PIECE: Record<string, PieceCategory> = {
@@ -85,4 +86,67 @@ export function piecesFor(
       piece.displayName.toLowerCase().includes(needle) ||
       piece.name.toLowerCase().includes(needle),
   );
+}
+
+/*
+ * One piece, in full.
+ *
+ * `/v1/pieces` answers with summaries — enough for a logo in a list. The
+ * builder needs the other endpoint: for every step on the canvas it fetches
+ * the whole piece and then reads `piece.actions[actionName].displayName`
+ * straight off it. A summary there throws on `undefined.displayName` and the
+ * canvas renders nothing at all, which is why the builder used to be a blank
+ * page rather than a bad-looking one.
+ *
+ * So every action name the flow fixtures use exists here, with a description,
+ * and the trigger the fixtures use exists too. Props are empty: the settings
+ * panel then renders its connection picker and its chrome, which is the part
+ * a colour review is looking at, without inventing a form no real piece has.
+ */
+function describe(displayName: string, pieceName: string): string {
+  return `${displayName} in ${pieceName}.`;
+}
+
+export function pieceFor(name: string): PieceMetadataModel | undefined {
+  const piece = PIECE_BY_NAME.get(name);
+  if (!piece) return undefined;
+  const summary = piecesFor({}).find((entry) => entry.name === name);
+
+  const actions = Object.fromEntries(
+    PIECE_ACTIONS.map((action) => [
+      action.name,
+      {
+        name: action.name,
+        displayName: action.displayName,
+        description: describe(action.displayName, piece.displayName),
+        props: {},
+        requireAuth: piece.auth,
+        errorHandlingOptions: {
+          continueOnFailure: { defaultValue: false, hide: false },
+          retryOnFailure: { defaultValue: false, hide: false },
+        },
+      },
+    ]),
+  );
+
+  return {
+    ...summary,
+    name,
+    displayName: piece.displayName,
+    logoUrl: piece.logoUrl,
+    description: `Work with ${piece.displayName}.`,
+    version: '0.1.0',
+    actions,
+    triggers: {
+      new_event: {
+        name: 'new_event',
+        displayName: `New ${piece.displayName} event`,
+        description: `Fires when something new happens in ${piece.displayName}.`,
+        props: {},
+        type: 'WEBHOOK',
+        sampleData: {},
+        requireAuth: piece.auth,
+      },
+    },
+  } as unknown as PieceMetadataModel;
 }

@@ -16,9 +16,12 @@ import {
   AppConnectionStatus,
   AppConnectionType,
   AppConnectionWithoutSensitiveData,
+  BranchExecutionType,
+  BranchOperator,
   ColorName,
   FlowRun,
   FlowRunStatus,
+  FlowActionType,
   FlowStatus,
   FlowTriggerType,
   AgentIcon,
@@ -31,6 +34,7 @@ import {
   PopulatedFlow,
   ProjectType,
   ProjectWithLimits,
+  RouterExecutionType,
   RunEnvironment,
   UserStatus,
   UserWithMetaInformation,
@@ -47,10 +51,13 @@ import {
 
 import {
   AGENT_NAMES,
+  CODE_STEPS,
   FAILURE_MESSAGES,
   FLOW_NAMES,
   FOLDER_NAMES,
   PEOPLE,
+  PIECE_ACTIONS,
+  PIECE_BY_NAME,
   PIECES,
   PROJECT_NAMES,
   TABLE_NAMES,
@@ -60,6 +67,11 @@ import { idFrom, isoAgo, rngFor } from './rng';
 export const PLATFORM_ID = idFrom('platform');
 export const PROJECT_ID = idFrom('project-0');
 export const USER_ID = idFrom('user-0');
+/* The flow a screenshot run opens in the builder. Its id is seeded from the
+   index alone, so it is the same flow in every scenario that has one. */
+export const FLOW_ID = idFrom('flow-0');
+
+const STRIPE = '@activepieces/piece-stripe';
 
 export type World = {
   scenario: Scenario;
@@ -276,6 +288,274 @@ function folders(scenario: Scenario, flowCount: number): FolderDto[] {
   }));
 }
 
+/*
+ * The steps inside a flow.
+ *
+ * The lists only ever read a flow's name and status, so until the builder was
+ * shot every fixture flow was a lone trigger with nothing after it. That is a
+ * fine row and a useless canvas: the builder's whole subject is the column of
+ * step cards, the connectors between them and the branch that splits them, and
+ * a one-node canvas photographs none of it.
+ *
+ * So a flow now has a body: a piece action, sometimes a code step, sometimes a
+ * router with two branches under it, and a last piece action after the join.
+ * Seeded from the flow's own index, so flow-3 has the same shape in every run
+ * and a screenshot diff is the design changing.
+ */
+function pieceStep({
+  name,
+  created,
+  pieceName,
+  actionName,
+  displayName,
+  nextAction,
+}: {
+  name: string;
+  created: string;
+  pieceName: string;
+  actionName: string;
+  displayName: string;
+  nextAction?: unknown;
+}): unknown {
+  return {
+    name,
+    valid: true,
+    displayName,
+    type: FlowActionType.PIECE,
+    lastUpdatedDate: created,
+    settings: {
+      pieceName,
+      pieceVersion: '0.1.0',
+      pieceType: 'OFFICIAL',
+      packageType: 'REGISTRY',
+      actionName,
+      input: {},
+      inputUiInfo: {},
+      propertySettings: {},
+      errorHandlingOptions: {
+        continueOnFailure: { value: false },
+        retryOnFailure: { value: false },
+      },
+    },
+    nextAction,
+  };
+}
+
+function randomPieceStep({
+  rng,
+  name,
+  created,
+  nextAction,
+}: {
+  rng: ReturnType<typeof rngFor>;
+  name: string;
+  created: string;
+  nextAction?: unknown;
+}): unknown {
+  const piece = rng.pick(PIECES);
+  const action = rng.pick(PIECE_ACTIONS);
+  return pieceStep({
+    name,
+    created,
+    pieceName: `@activepieces/piece-${piece.name}`,
+    actionName: action.name,
+    displayName: action.displayName,
+    nextAction,
+  });
+}
+
+function codeStep({
+  name,
+  created,
+  displayName,
+  nextAction,
+}: {
+  name: string;
+  created: string;
+  displayName: string;
+  nextAction?: unknown;
+}): unknown {
+  return {
+    name,
+    valid: true,
+    displayName,
+    type: FlowActionType.CODE,
+    lastUpdatedDate: created,
+    settings: {
+      sourceCode: {
+        code: 'export const code = async (inputs) => {\n  return inputs;\n};\n',
+        packageJson: '{}',
+      },
+      input: {},
+      inputUiInfo: {},
+      errorHandlingOptions: {
+        continueOnFailure: { value: false },
+        retryOnFailure: { value: false },
+      },
+    },
+    nextAction,
+  };
+}
+
+function randomCodeStep({
+  rng,
+  name,
+  created,
+  nextAction,
+}: {
+  rng: ReturnType<typeof rngFor>;
+  name: string;
+  created: string;
+  nextAction?: unknown;
+}): unknown {
+  return codeStep({
+    name,
+    created,
+    displayName: rng.pick(CODE_STEPS).displayName,
+    nextAction,
+  });
+}
+
+/* Two branches, because one is not a fork. The fallback is the second one:
+   that is how the product words "otherwise", and the canvas draws its label
+   differently. */
+function routerStep({
+  name,
+  created,
+  children,
+  nextAction,
+}: {
+  name: string;
+  created: string;
+  children: unknown[];
+  nextAction?: unknown;
+}): unknown {
+  return {
+    name,
+    valid: true,
+    displayName: 'Split by plan',
+    type: FlowActionType.ROUTER,
+    lastUpdatedDate: created,
+    settings: {
+      executionType: RouterExecutionType.EXECUTE_FIRST_MATCH,
+      branches: [
+        {
+          branchType: BranchExecutionType.CONDITION,
+          branchName: 'Enterprise',
+          conditions: [
+            [
+              {
+                operator: BranchOperator.TEXT_CONTAINS,
+                firstValue: '{{trigger.plan}}',
+                secondValue: 'enterprise',
+                caseSensitive: false,
+              },
+            ],
+          ],
+        },
+        { branchType: BranchExecutionType.FALLBACK, branchName: 'Otherwise' },
+      ],
+      inputUiInfo: {},
+    },
+    children,
+    nextAction,
+  };
+}
+
+/*
+ * The flow the screenshots open.
+ *
+ * Hand-written rather than seeded, because a screenshot script has to click a
+ * step and the only handle a canvas node offers a person is its name. Seeded
+ * names are stable run to run but unknowable from outside the app, so the
+ * script would be addressing markup instead. This one reads as the flow it is
+ * named after — a Stripe payment fanning out by plan — and every label in it
+ * is a literal a target file can name.
+ */
+function curatedSteps(created: string): unknown {
+  return pieceStep({
+    name: 'step_1',
+    created,
+    pieceName: '@activepieces/piece-stripe',
+    actionName: 'get_customer',
+    displayName: 'Look up the customer',
+    nextAction: codeStep({
+      name: 'step_2',
+      created,
+      /* A code step is in the curated flow on purpose: selecting it opens
+         Monaco, whose own theme is the one surface in the builder that does
+         not read the app's tokens, so it has to be photographed. */
+      displayName: 'Normalise the payload',
+      nextAction: routerStep({
+        name: 'step_3',
+        created,
+        children: [
+          pieceStep({
+            name: 'step_4',
+            created,
+            pieceName: '@activepieces/piece-slack',
+            actionName: 'send_message',
+            displayName: 'Post to #revenue',
+          }),
+          pieceStep({
+            name: 'step_5',
+            created,
+            pieceName: '@activepieces/piece-gmail',
+            actionName: 'send_email',
+            displayName: 'Email the finance inbox',
+          }),
+        ],
+        nextAction: pieceStep({
+          name: 'step_6',
+          created,
+          pieceName: '@activepieces/piece-google-sheets',
+          actionName: 'add_row',
+          displayName: 'Append a row to the ledger',
+        }),
+      }),
+    }),
+  });
+}
+
+function stepsFor({
+  rng,
+  created,
+  branching,
+}: {
+  rng: ReturnType<typeof rngFor>;
+  created: string;
+  branching: boolean;
+}): unknown {
+  if (!branching) {
+    return randomPieceStep({
+      rng,
+      name: 'step_1',
+      created,
+      nextAction: randomCodeStep({
+        rng,
+        name: 'step_2',
+        created,
+        nextAction: randomPieceStep({ rng, name: 'step_3', created }),
+      }),
+    });
+  }
+
+  return randomPieceStep({
+    rng,
+    name: 'step_1',
+    created,
+    nextAction: routerStep({
+      name: 'step_2',
+      created,
+      children: [
+        randomPieceStep({ rng, name: 'step_3', created }),
+        randomPieceStep({ rng, name: 'step_4', created }),
+      ],
+      nextAction: randomPieceStep({ rng, name: 'step_5', created }),
+    }),
+  });
+}
+
 function flows(scenario: Scenario, folderList: FolderDto[]): PopulatedFlow[] {
   const count = sizeOf('flows', scenario);
   const failureRate = failureRateFor(scenario.health);
@@ -285,12 +565,27 @@ function flows(scenario: Scenario, folderList: FolderDto[]): PopulatedFlow[] {
     const name = FLOW_NAMES[index % FLOW_NAMES.length];
     const id = idFrom(`flow-${index}`);
     const versionId = idFrom(`flow-version-${index}`);
-    const piece = rng.pick(PIECES);
+    /* Flow 0 is the one the screenshots open, so its trigger is pinned to the
+       piece its name promises. The pick still happens, so every other flow
+       keeps the world it had. */
+    const picked = rng.pick(PIECES);
+    const piece = index === 0 ? PIECE_BY_NAME.get(STRIPE) ?? picked : picked;
     const folder = folderList.length > 0 ? rng.pick(folderList) : undefined;
     /* Most flows in a real project are on; the disabled ones are the ones
        somebody paused after it misbehaved, so they cluster with failures. */
     const enabled = rng.next() > 0.18 + failureRate * 0.2;
     const created = isoAgo(rng.int(60 * 24 * 7, 60 * 24 * 300));
+    /* Every third flow forks. Enough that a branch is never more than a few
+       flows away, rare enough that the plain linear canvas is still the one
+       most screenshots land on — which is also true of real projects. */
+    const steps =
+      index === 0
+        ? curatedSteps(created)
+        : stepsFor({
+            rng: rngFor(`flow-steps-${index}`),
+            created,
+            branching: index % 3 === 0,
+          });
 
     return {
       id,
@@ -335,8 +630,9 @@ function flows(scenario: Scenario, folderList: FolderDto[]): PopulatedFlow[] {
             triggerName: 'new_event',
             input: {},
             inputUiInfo: {},
+            propertySettings: {},
           },
-          nextAction: undefined,
+          nextAction: steps,
         },
       },
     } as unknown as PopulatedFlow;

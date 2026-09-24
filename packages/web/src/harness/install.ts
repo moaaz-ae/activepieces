@@ -97,13 +97,16 @@ export async function installHarness(): Promise<void> {
   if (!isHarnessEnabled()) return;
 
   const { fixtureAdapter } = await import('./fixture-adapter');
-  const { PLATFORM_ID, PROJECT_ID, USER_ID } = await import('./fixtures/world');
+  const { FLOW_ID, PLATFORM_ID, PROJECT_ID, USER_ID } = await import(
+    './fixtures/world'
+  );
   const { PIECE_SET_ID } = await import('./fixtures/admin-security');
 
   /* Ids a screenshot run needs to address detail screens, published where the
      script can read them (it reads `projectId` the same way) rather than
      re-deriving the seeded ids outside the app. */
   localStorage.setItem('ap-harness-piece-set-id', PIECE_SET_ID);
+  localStorage.setItem('ap-harness-flow-id', FLOW_ID);
 
   if (isSignedOut()) {
     localStorage.removeItem('token');
